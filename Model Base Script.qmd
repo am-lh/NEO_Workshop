@@ -1,0 +1,257 @@
+---
+title: "NEO Workshop"
+author: "Amélie Lehuen"
+date: "2022-12-14"
+description: "add info on script"
+toc: true # table of content at beginning of document
+number-sections: true
+highlight-style: pygments
+format: 
+  html: 
+    self-contained: true
+    code-fold: false
+    html-math-method: katex # displays equations
+  docx: 
+    reference-doc: customreference_nonb.docx
+
+bibliography: references.bib
+
+editor: visual
+execute:
+  eval: true
+  echo: false
+  message: false
+  warning: false
+  output: true
+  include: false
+  cache: false #create cache of results of chunks
+---
+
+# NEO Workshop
+
+## Introduction
+
+The aim of the workshop is to...
+
+## Script preparation
+
+### Packages
+
+```{r}
+#| label: load-packages
+#| code-summary: "Packages"
+#| include: false
+
+library(readxl) ; library(openxlsx); 
+library(beepr); library(clipr) # Edition d'un fichier Excel
+library(tidyverse); #The toolbox indispensable 
+library(broom); library(purrr) # tidy,glance,augment
+library(scales) ; library(grafify) ; library(ggthemes)
+library(RColorBrewer) ; library(colorspace); library(ggsci)
+library(ggpubr);library(gridExtra) ; library(grid) # Mozaic of graphs tools
+library(lubridate)
+library(knitr)
+```
+
+### Working Environment
+
+```{r}
+#| label: workenvir
+#| echo: true
+
+rm(list=ls())
+
+Run <- "Lehuen_2022"
+
+wdpath <- "./"
+wdsource <- paste(wdpath,"Data/",sep="") #,"/",Run
+wdres <-  paste(wdpath,"Results/",sep="")
+wdmat <-  paste(wdpath,"Matrices/",sep="")
+wdgraph <-  paste(wdpath,"Plots/",sep="")
+# setwd("./")
+```
+
+### Graphic charter
+
+```{r}
+#| label: graphchart
+theme_set(theme_bw(base_size = 16)) # theme_gray() theme_bw() theme_light() theme_dark()
+# My_Theme <- theme(
+#   axis.title.x = element_text(size = 16),
+#   axis.title.y = element_text(size = 16))
+
+pal_clb <- function(x) {graf_col_palette(palette = "fishy")(x)}; # show_col(pal_clb(6))
+colBin<-c(pal_clb(6)[1],pal_clb(6)[2]); colMisc<-pal_clb(6)[6]# show_col(colBin)
+Scalc_bin<- function() {scale_colour_manual(values=colBin)}
+Scalc_lon<- function(x) {scale_colour_manual(values=pal_clb(x))}
+# Scale_brew <- function() {scale_colour_brewer(palette="Spectral",aesthetics=c("colour","fill"))}
+```
+
+### Home made functions
+
+```{r}
+#| label: functmade
+
+loadRData <- function(fileName){
+#loads an RData file, and returns it
+    load(fileName)
+    mget(ls()[ls() != "fileName"])
+}
+```
+
+## Load of External data and Basic Variables
+
+### External data
+
+#### BENTHOBS
+
+Data are available on https://data.benthobs.fr/. There are different files:
+
+-   `granulometry` TSV file with granulometry data.
+
+-   `hydrology` TSV file with hydrology data.
+
+-   `macrofauna` TSV file with macrofauna data.
+
+-   `organicmatter` TSV file with organic matter data
+
+```{r}
+#| label: "benthos_load"
+
+# benthobs_site <- "https://data.benthobs.fr/files/latest/all_sites/"
+# download.file(paste0(benthobs_site,"granulometry.tsv"),
+#                         destfile="./Data/BENTHOBS/granulometry.tsv")
+# download.file(paste0(benthobs_site,"hydrology.tsv"),
+#                         destfile="./Data/BENTHOBS/hydrology.tsv")
+# download.file(paste0(benthobs_site,"macrofauna.tsv"),
+#                         destfile="./Data/BENTHOBS/macrofauna.tsv")
+# download.file(paste0(benthobs_site,"organicmatter.tsv"),
+#                         destfile="./Data/BENTHOBS/organicmatter.tsv")
+
+bo_granu<-as.data.frame(read_tsv(sprintf("%sBENTHOBS/granulometry.tsv",wdsource)))
+bo_hydro<-as.data.frame(read_tsv(sprintf("%sBENTHOBS/hydrology.tsv",wdsource)))
+bo_macro<-as.data.frame(read_tsv(sprintf("%sBENTHOBS/macrofauna.tsv",wdsource)))
+bo_orga<-as.data.frame(read_tsv(sprintf("%sBENTHOBS/organicmatter.tsv",wdsource)))
+
+```
+
+#### PHYTOBS
+
+Data are available on https://data.phytobs.fr/. There are different files:
+
+-   `Analyst` files containing single taxon counts.
+
+-   `Phytobs` files containing single counts for taxon groups that are part of the SNO labelled taxon groups.
+
+-   `combined` files aggregating the two previous files.
+
+```{r}
+#| label: "phythos_load"
+phytobs_site <- "https://data.phytobs.fr/files/latest/all_sites/"
+# download.file(paste0(phytobs_site,"Phytobs.csv"),
+#                         destfile="./Data/PHYTOBS/Phytobs.csv")
+# download.file(paste0(phytobs_site,"Analyst.csv"),
+#                         destfile="./Data/PHYTOBS/Analyst.csv")
+# download.file(paste0(phytobs_site,"combined.csv"),
+#                         destfile="./Data/PHYTOBS/combined.csv")
+
+po_analy<-as.data.frame(read_csv(sprintf("%sPHYTOBS/Analyst.csv",wdsource)))
+po_phyto<-as.data.frame(read_csv(sprintf("%sPHYTOBS/Phytobs.csv",wdsource)))
+bo_combi<-as.data.frame(read_csv(sprintf("%sPHYTOBS/combined.csv",wdsource)))
+
+```
+
+#### COASTHF
+
+Data are available on https://data.coriolis-cotier.org/fr. In the menu, the active platform toggle button is activated and the COASTHF network is selected. All available stations has been selected. Detailed information are available on https://coast-hf.fr/.
+
+-   `Analyst` files containing single taxon counts.
+
+```{r}
+#| label: "coasthf_load"
+
+# cf_ <- as.data.frame(read_csv(sprintf(
+#   "%s/COASTHF/xxx.csv",wdsource)))
+
+```
+
+#### SOMLIT
+
+Data are available on https://www.somlit.fr/demande-de-donnees/. You have to request with your mail each files available. Please refer to [@liénart2017], [@liénart2018], [@cocquempot2019] of [@lheureux2022] for detail about the dataset building and history. Parameters available are in @fig-parsom
+
+![https://www.somlit.fr/parametres-et-protocoles/](images/tableau_parametre.png) {#fig-parsom}
+
+```{r}
+#| label: "somlit_load"
+
+sl_ctd <- as.data.frame(read_csv(sprintf(
+  "%sSOMLIT/Somlit_Extraction_ctd.csv",wdsource)))
+sl_hydro <- as.data.frame(read_csv(sprintf(
+  "%sSOMLIT/Somlit_Extraction_hydro.csv",wdsource)))
+sl_piconano <- as.data.frame(read_csv(sprintf(
+  "%sSOMLIT/Somlit_Extraction_piconano.csv",wdsource)))
+
+```
+
+```{r}
+#| label: externdata
+
+# binderin <- sprintf("./binderin.xlsx")
+# data <- as.data.frame(read_excel(binderin,sheet = "Exp_Plan", na = ""))
+
+# rdatain <- sprintf("%sNEO_wshp.RData",wdres)
+# load(rdatain)
+```
+
+### Output binder and data
+
+```{r}
+#| label: outfiles
+binderout <- sprintf("%sNEO_wshp.xlsx",wdres)
+rdataout  <- sprintf("%sNEO_wshp.RData",wdres)
+# if exists
+# load(rdataout)
+
+```
+
+### Basic variables
+
+```{r}
+#| label: basicvar
+#| echo: true
+
+
+```
+
+# First block of action
+
+# Final actions and save
+
+Rdata are saved in `rdataout`. An excel file collects data in `r binderout` , with sheets for :
+
+-   data : contains whatever
+
+```{r}
+#| label: finalsave_xsl
+#| eval: false
+
+wb <- copyWorkbook(loadWorkbook(binderin))
+# copyworkbook to avoid any pb that can occur on the excel file
+if (!("AllMeas" %in% names(wb))) {
+  addWorksheet(wb=wb, sheetName = "AllMeas")}
+writeData(wb, sheet = "AllMeas", x = data, 
+          startCol = 1, startRow = 1,withFilter = FALSE)
+
+saveWorkbook(wb,file=binderout, overwrite = TRUE)
+
+```
+
+```{r}
+#| label: finalsave_rdata
+
+save.image(file = rdataout)
+beepr::beep(2)
+
+```
+
+# References {.unnumbered}
