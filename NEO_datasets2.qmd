@@ -1,0 +1,458 @@
+---
+title: "NEO Workshop"
+author: "Amélie Lehuen"
+date: "`r format(Sys.time(), '%B %Y')`"
+description: "add info on script"
+toc: true # table of content at beginning of document
+number-sections: true
+highlight-style: pygments
+format: 
+  html: 
+    self-contained: true
+    code-fold: false
+    html-math-method: katex # displays equations
+  docx: 
+    reference-doc: customreference_nonb.docx
+
+bibliography: references.bib
+
+editor: visual
+execute:
+  eval: true
+  echo: false
+  message: false
+  warning: false
+  output: true
+  include: false
+  cache: false #create cache of results of chunks
+---
+
+# NEO Workshop
+
+## Introduction
+
+The aim of the workshop is to...
+
+## Script preparation
+
+### Packages
+
+```{r}
+#| label: load-packages
+#| code-summary: "Packages"
+#| include: false
+
+library(readxl) ; library(openxlsx); 
+library(beepr); library(clipr) # Edition d'un fichier Excel
+library(tidyverse); #The toolbox indispensable 
+library(broom); library(purrr) # tidy,glance,augment
+library(scales) ; library(grafify) ; library(ggthemes)
+library(RColorBrewer) ; library(colorspace); library(ggsci)
+library(ggpubr);library(gridExtra) ; library(grid) # Mozaic of graphs tools
+library(lubridate)
+
+# SIG
+library(sf); library(sfheaders)
+library(rnaturalearth) # library(raster)
+library(tmap)
+library(tmaptools) # tmap_mode; for static and interactive maps
+
+library(knitr)
+```
+
+### Working Environment
+
+```{r}
+#| label: workenvir
+#| echo: true
+
+rm(list=ls())
+
+wdsource <- "Data/"
+wdres <- "Results/"
+wdmat <- "Matrices/"
+wdgraph <- "Plots/"
+
+```
+
+### Graphic charter
+
+```{r}
+#| label: graphchart
+theme_set(theme_bw(base_size = 16)) # theme_gray() theme_bw() theme_light() theme_dark()
+# My_Theme <- theme(
+#   axis.title.x = element_text(size = 16),
+#   axis.title.y = element_text(size = 16))
+
+pal_clb <- function(x) {graf_col_palette(palette = "fishy")(x)}; # show_col(pal_clb(6))
+colBin<-c(pal_clb(6)[1],pal_clb(6)[2]); colMisc<-pal_clb(6)[6]# show_col(colBin)
+Scalc_bin<- function() {scale_colour_manual(values=colBin)}
+Scalc_lon<- function(x) {scale_colour_manual(values=pal_clb(x))}
+# Scale_brew <- function() {scale_colour_brewer(palette="Spectral",aesthetics=c("colour","fill"))}
+```
+
+### Home made functions
+
+```{r}
+#| label: functmade
+
+loadRData <- function(fileName){
+#loads an RData file, and returns it
+    load(fileName)
+    mget(ls()[ls() != "fileName"])
+}
+```
+
+## Load of External data and Basic Variables
+
+### Basic variables
+
+```{r}
+#| label: basicvar
+#| echo: true
+
+
+```
+
+### Output binder and data
+
+```{r}
+#| label: outfiles
+binderout <- sprintf("%sNEO_wshp.xlsx",wdres)
+rdataout  <- sprintf("%sNEO_wshp.RData",wdres)
+# if exists
+# load(rdataout)
+
+```
+
+### BENTHOBS
+
+Data are available on https://data.benthobs.fr/. There are different files:
+
+-   `granulometry` TSV file with granulometry data.
+
+-   `hydrology` TSV file with hydrology data.
+
+-   `macrofauna` TSV file with macrofauna data.
+
+-   `organicmatter` TSV file with organic matter data
+
+```{r}
+#| label: "benthos_load"
+
+# benthobs_site <- "https://data.benthobs.fr/files/latest/all_sites/"
+# download.file(paste0(benthobs_site,"granulometry.tsv"),
+#                         destfile=sprintf("%sBENTHOBS/granulometry.tsv",wdsource))
+# download.file(paste0(benthobs_site,"hydrology.tsv"),
+#                         destfile=sprintf("%sBENTHOBS/hydrology.tsv",wdsource))
+# download.file(paste0(benthobs_site,"macrofauna.tsv"),
+#                         destfile=sprintf("%sBENTHOBS/macrofauna.tsv",wdsource))
+# download.file(paste0(benthobs_site,"organicmatter.tsv"),
+#                         destfile=sprintf("%sBENTHOBS/organicmatter.tsv",wdsource))
+
+bo_granu<-as.data.frame(read_tsv(
+  sprintf("%sBENTHOBS/granulometry.tsv",wdsource))) %>% 
+  mutate(across(where(is.logical),as.character))
+bo_hydro<-as.data.frame(read_tsv(
+  sprintf("%sBENTHOBS/hydrology.tsv",wdsource))) %>% 
+  mutate(across(where(is.logical),as.character))
+bo_macro<-as.data.frame(read_tsv(
+  sprintf("%sBENTHOBS/macrofauna.tsv",wdsource))) %>% 
+  mutate(across(where(is.logical),as.character))
+bo_orga<-as.data.frame(read_tsv(
+  sprintf("%sBENTHOBS/organicmatter.tsv",wdsource))) %>% 
+  mutate(across(where(is.logical),as.character))
+
+bo_set <- list(bo_granu=bo_granu, 
+               bo_hydro=bo_hydro,
+               bo_macro=bo_macro, 
+               bo_orga=bo_orga)
+bo_setvar <- Reduce(intersect, lapply(bo_set, names))
+
+```
+
+### PHYTOBS
+
+Data are available on https://data.phytobs.fr/. There are different files:
+
+-   `Analyst` files containing single taxon counts.
+
+-   `Phytobs` files containing single counts for taxon groups that are part of the SNO labelled taxon groups.
+
+-   `combined` files aggregating the two previous files.
+
+```{r}
+#| label: "phythos_load"
+phytobs_site <- "https://data.phytobs.fr/files/latest/all_sites/"
+# download.file(paste0(phytobs_site,"Phytobs.csv"),
+#                         destfile="./Data/PHYTOBS/Phytobs.csv")
+# download.file(paste0(phytobs_site,"Analyst.csv"),
+#                         destfile="./Data/PHYTOBS/Analyst.csv")
+# download.file(paste0(phytobs_site,"combined.csv"),
+#                         destfile="./Data/PHYTOBS/combined.csv")
+
+po_analy<-as.data.frame(read_csv(
+  sprintf("%sPHYTOBS/Analyst.csv",wdsource))) %>% 
+  mutate(across(where(is.logical),as.character))
+po_phyto<-as.data.frame(read_csv(
+  sprintf("%sPHYTOBS/Phytobs.csv",wdsource))) %>% 
+  mutate(across(where(is.logical),as.character))
+po_combi<-as.data.frame(read_csv(
+  sprintf("%sPHYTOBS/combined.csv",wdsource))) %>% 
+  mutate(across(where(is.logical),as.character))
+
+po_set <- list(po_analy=po_analy, 
+               po_phyto=po_phyto,
+               po_combi=po_combi)
+po_setvar <- Reduce(intersect, lapply(po_set, names))
+
+```
+
+### COASTHF
+
+Data are available on https://data.coriolis-cotier.org/fr. In the menu, the active platform toggle button is activated and the COASTHF network is selected. All available stations has been selected. Detailed information are available on https://coast-hf.fr/.
+
+```{r}
+#| label: "coasthf_load"
+#| output: false
+
+cf_buoy<-as.data.frame(rbind(
+               c("EXIN0003","POEM"),
+               c("EXIN0004","SOLEMIO"),
+               c("EXIN0002","EOL"),
+               c("EXIN0001","ARCACHON B13"),
+               c("6100284","Mesurho"),
+               c("EXIN0006","SOLA"),
+               c("6200021","Vilaine Molit"),
+               c("IF000700","SMART"),
+               c("6200450","Iroise Stanne"),
+               c("IF000997","Iroise Stanne TEST"),
+               c("6200310","Smile LucSurMer"),
+               c("SCENES","SCENES"),
+               c("6200443","Carnot"),
+               c("EXIN0005","ASTAN"))
+               )
+names(cf_buoy) <- c("Code","Name")
+cf_data<-list(); cf_varlist<-list()
+for (cfi in 1:nrow(cf_buoy)) {
+  cf_data[[cf_buoy[cfi,1]]] <- as.data.frame(read_csv(sprintf(
+    "%s/COASTHF/mooring-buoys-time-series-%s.csv",
+    wdsource,cf_buoy[cfi,1]))) %>% 
+  mutate(across(where(is.logical),as.character))
+  cf_data[[cf_buoy[cfi,1]]]$PLATFORM <- 
+    as.character(cf_data[[cf_buoy[cfi,1]]]$PLATFORM)
+  cf_varlist[[cfi]]<-data.frame(
+    buoy=cf_buoy[cfi,1],
+    Var=colnames(cf_data[[cfi]]))
+}
+cf_setvar <- Reduce(intersect, lapply(cf_data, names))
+
+cf_var<-bind_rows(cf_varlist) #%>% 
+  # pivot_wider(names_from = buoy, values_from = Var)
+
+# cf_df <- bind_rows(cf_data)
+
+```
+
+### SOMLIT
+
+Data are available on https://www.somlit.fr/demande-de-donnees/. You have to request with your mail each files available. Please refer to [@liénart2017], [@liénart2018], [@cocquempot2019] and [@lheureux2022] for detail about the dataset building and history. Parameters available are in @fig-parsom
+
+![https://www.somlit.fr/parametres-et-protocoles/](images/tableau_parametre.png) {#fig-parsom}
+
+```{r}
+#| label: "somlit_load"
+
+sl_ctd <- as.data.frame(read_csv(sprintf(
+  "%sSOMLIT/Somlit_Extraction_ctd.csv",wdsource))) %>% 
+  mutate(across(where(is.logical),as.character))
+sl_hydro <- as.data.frame(read_csv(sprintf(
+  "%sSOMLIT/Somlit_Extraction_hydro.csv",wdsource))) %>% 
+  mutate(across(where(is.logical),as.character))
+sl_piconano <- as.data.frame(read_csv(sprintf(
+  "%sSOMLIT/Somlit_Extraction_piconano.csv",wdsource))) %>% 
+  mutate(across(where(is.logical),as.character))
+
+sl_set <- list(sl_ctd=sl_ctd, 
+               sl_hydro=sl_hydro,
+               sl_piconano=sl_piconano)
+sl_setvar <- Reduce(intersect, lapply(sl_set, names))
+```
+
+```{r}
+#| label: externdata
+
+# binderin <- sprintf("./binderin.xlsx")
+# data <- as.data.frame(read_excel(binderin,sheet = "Exp_Plan", na = ""))
+
+# rdatain <- sprintf("%sNEO_wshp.RData",wdres)
+# load(rdatain)
+```
+
+# Global data sets description
+
+All data treatment has been conducted with `r R.version.string` <!--# except for MARS3D pre-treatment on Matlab 2019a -->. Significance levels are tagged for p \< .0001 with "\*\*\*\*", p \< .001 with "\*\*\*", p \< .01 with "\*\*", p \< .05 with "\*".
+
+## Map of sites
+
+```{r}
+#| label: fig-map
+#| include: true
+#| fig-cap: "Maps of habitats areas defined for the study"
+
+# Base of bounding boxes
+boxMP<-c(xmin=-0.1, ymin=49.3, xmax=0.45, ymax=49.65)
+boxchannel<-c(xmin=-2.5, ymin=49.0, xmax=1.5, ymax=51.0)
+
+bay <- ne_states(country = c("France","united kingdom"), 
+                 returnclass = "sf") %>%
+  st_crop(boxchannel)
+bbbay<-bb(bay)
+
+osm_df <- read_osm(bay, ext=1.1)
+
+# boxestuary<-bb(boxchannel)
+
+tm_bay<-
+  tm_shape(bay) + 
+    tm_fill(col="grey30") +
+  tm_shape(st_as_sfc(bbbay)) + 
+    tm_borders("red", lwd = 2) +
+  tm_layout(bg.color = "skyblue")
+
+tmap_mode("plot") # "plot" "view"
+tm_data<-
+  # tm_shape(estuary, bbox = boxestuary) + 
+  #   tm_polygons() +
+  tm_shape(osm_df) +  
+    tm_rgb() +
+  tm_scale_bar(position = c("LEFT", "BOTTOM"), width = 0.15) + #SCALE
+  tm_compass(position = c("RIGHT", "BOTTOM"), size = 3) +          #NORTH COMPASS
+  tm_layout(legend.position= c("LEFT","TOP"))
+tm_data
+
+vp <- grid::viewport(0.985, 0.995, width = 0.25, just=c("right", "top"))
+print(tm_bay, vp = vp)
+# tmap_save(tm_data,filename="../Graphiques/Estuary_map_with_inset.png",
+#           insets_tm=tm_bay, insets_vp=vp,
+#           dpi=600,
+#           height=10, units="cm")
+
+```
+
+## Benthobs
+
+```{r}
+#| label: benth_data
+
+df_set <- bo_set
+df_setvar <- bo_setvar %>%
+  paste(collapse = ", ")
+
+dfi<-1
+df<-df_set[[dfi]]
+df_name<-names(df_set)[dfi]
+obsnbtot[dfi] <-count(df) %>%
+  pull() %>% 
+  formatC(., format="f", big.mark=",", digits=0)
+varnbtot[dfi] <- ncol(df)
+  
+
+yearsrange <- df %>% 
+  mutate(Annee = as.numeric(levels(Annee))[Annee]) %>% # reconvert factors
+  arrange(Annee) %>% 
+  slice(c(1,n())) %>% 
+  pull(Annee) %>%
+  paste(collapse = " to ")
+moisyear <- df %>% group_by(Annee,Station_originelle) %>% 
+  summarise(nbcamp=n_distinct(Mois)) %>% 
+  group_by(nbcamp) %>%
+  summarise(nbstat=n_distinct(Station_originelle)) %>% 
+  arrange(desc(nbstat)) %>%
+  slice(1:2) %>% #slice(c(1,n())) %>%
+  pull(nbcamp) %>%
+  paste(collapse = " to ")
+nbstattot <- CSLN %>% 
+  summarise(n_distinct(Station_originelle)) %>% 
+  pull()
+nbstatyr <- CSLN %>% group_by(Annee) %>% 
+  summarise(nbstat=n_distinct(Station_originelle)) %>%
+  summarise(nbstat=round(mean(nbstat),0)) %>% 
+  pull()
+period <- CSLN %>% group_by(Mois) %>% 
+  mutate(Mois = month.abb[as.numeric(levels(Mois))[Mois]]) %>%
+  summarise(nbstat=n_distinct(Station_originelle)) %>%
+  arrange(desc(nbstat)) %>% 
+  slice(1:3) %>% 
+  pull(Mois) %>% 
+  paste(collapse = ", ")
+recbef2000 <- CSLN_Mars %>% 
+  filter(!Zone  %in% c("Channel","Bay")) %>% # at minimum
+  filter(Period == "1996-1999") %>%
+  filter(!SPCourt %in% c("SEMBA","AMPIM","AUSMO",
+                         "BALCR","MYTED","BIVAL","ANNEL")) %>%
+  # filter(SPCourt %in% c(espece)) %>% 
+  # summarise(n_distinct(idStationUnique)) %>% 
+  count() %>% 
+  pull()
+
+```
+
+The BENTHOBS data set count `r length(df_set)` tables that has the common variables
+
+The `df_name` data (n= `r obsnbtot`) contains `r varnbtot` variables, and `r nbstattot` sampling stations in total (with some variation in coordinates from year to year), with an average of `r nbstatyr` stations per campaign, occurred mainly in the months of `r period`. Along the all period covered by the dataset, from `r yearsrange`, discarding before 2000 (too few observations n=`r recbef2000`), with `r moisyear` sampling campaigns per year, a series of 5-years periods has been defined, 2000-2005 the building of 'Port 2000' with high disruption in the estuary area; 2006-2010; 2011-2015; 2016-2019.
+
+## Phytobs
+
+```{r}
+#| label: phyt_data
+
+
+```
+
+## Coasthf
+
+```{r}
+#| label: coas_data
+
+
+```
+
+## Somlit
+
+```{r}
+#| label: soml_data
+
+
+```
+
+# Final actions and save
+
+Rdata are saved in `rdataout`. An excel file collects data in `r binderout` , with sheets for :
+
+-   data : contains whatever
+
+```{r}
+#| label: finalsave_xsl
+#| eval: false
+
+wb <- copyWorkbook(loadWorkbook(binderin))
+# copyworkbook to avoid any pb that can occur on the excel file
+if (!("AllMeas" %in% names(wb))) {
+  addWorksheet(wb=wb, sheetName = "AllMeas")}
+writeData(wb, sheet = "AllMeas", x = data, 
+          startCol = 1, startRow = 1,withFilter = FALSE)
+
+saveWorkbook(wb,file=binderout, overwrite = TRUE)
+
+```
+
+```{r}
+#| label: finalsave_rdata
+
+save.image(file = rdataout)
+beepr::beep(2)
+
+```
+
+# References {.unnumbered}
