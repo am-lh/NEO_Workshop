@@ -1,0 +1,16 @@
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+.quarto/
+NEO_datasets_cache/
+Data/
+Matrices/
+output/
+Pictures/
+Plots/
+Rapports/
+Results/
+SIG/
+NEO.qgz
+customreference_nonb.docx

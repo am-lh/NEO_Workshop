@@ -1,0 +1,23 @@
+project:
+  title: "NEO"
+  output-dir: output_qmd
+  execute-dir: project
+  
+toc: true # table of content at beginning of document
+number-sections: true
+highlight-style: pygments
+format: 
+  html: 
+    self-contained: true
+    code-fold: false
+    df-print: kable
+    html-math-method: katex # displays equations
+  docx: 
+    reference-doc: customreference_nonb.docx
+
+bibliography: references.bib
+
+
+
+
+
