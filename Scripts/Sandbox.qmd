@@ -1,0 +1,128 @@
+---
+title: "NEO Workshop"
+author: "Amélie Lehuen"
+description: "add info on script"
+date: "`r format(Sys.time(), '%d %B %Y')`"
+editor: visual
+execute:
+  eval: true
+  echo: false
+  message: false
+  warning: false
+  output: true
+  include: false
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r}
+#| label: load-packages
+#| code-summary: "Packages"
+
+library(knitr)
+library(readxl) ; library(openxlsx)
+library(beepr); library(clipr)
+library(tidyverse); library(data.table)
+library(broom); library(purrr) # tidy,glance,augment
+library(lubridate)
+library(rstatix); library(Hmisc)  # corr and pvalue calculation
+
+# SIG
+library(sf); library(sfheaders)
+library(rnaturalearth) # library(raster)
+library(tmap)
+library(tmaptools) # tmap_mode; for static and interactive maps
+
+# Graphics packages
+library(scales); library(grafify)
+library(RColorBrewer)
+library(ggpubr)
+library(GGally)
+library(plotly)
+library(ggdist)
+library(introdataviz) # geom_split_violin # devtools::install_github("psyteachr/introdataviz")
+sf_use_s2(FALSE)
+
+```
+
+```{r}
+#| label: workenvir
+
+rm(list=ls())
+
+wdsource <- "Data/"
+wdres <- "Results/"
+wdmat <- "Matrices/"
+wdgraph <- "Plots/"
+wdGIS <- "SIG/"
+
+refresh_SNO<-FALSE # TRUE to collect data online and recreate matrices
+```
+
+```{r}
+#| label: graphchart
+
+theme_set(theme_bw(base_size = 16)) # theme_gray() theme_bw() theme_light() theme_dark()
+# My_Theme <- theme(
+#   axis.title.x = element_text(size = 16),
+#   axis.title.y = element_text(size = 16))
+
+pal_clb <- function(x) {graf_col_palette(palette = "muted")(x)}; # show_col(pal_clb(4))
+colbdd <- pal_clb(4)
+colBin<-c(pal_clb(6)[1],pal_clb(6)[2]); colMisc<-pal_clb(6)[6]# show_col(colBin)
+Scalc_bin<- function() {scale_colour_manual(values=colBin)}
+Scalc_lon<- function(x) {scale_colour_manual(values=pal_clb(x))}
+Scalf_lon<- function(x) {scale_fill_manual(values=pal_clb(x))}
+Scale_brew <- function() {scale_colour_brewer(palette="Spectral",aesthetics=c("colour","fill"))}
+```
+
+<!-- Basic variables -->
+```{r}
+#| label: basicvar
+
+name_bases <- c("BENTHOBS","PHYTOBS","SOMLIT","COASTHF")
+SNO_pal<-pal_clb(4); names(SNO_pal)<-name_bases
+  
+SNO_Areas<-paste(wdGIS,"SNO_Areas.shp",sep="")
+  SNO_Areas<-st_read(SNO_Areas,quiet=TRUE,crs=4326 ) # %>% st_transform(2154)
+# st_crs(SNO_Areas)
+```
+
+<!-- Output binder and data -->
+```{r}
+#| label: outfiles
+
+binderout <- sprintf("%sNEO_wshp.xlsx",wdres)
+rdataout  <- sprintf("%sNEO_wshp.RData",wdmat)
+# if exists
+load(rdataout)
+```
+# gen
+
+## dkjvn
+
+### vskjb
+
+:::: {.column-page}
+
+::: {.panel-tabset}
+
+```{r}
+#| include: true
+#| fig-width: 16
+#| fig-height: 8
+#| results: asis
+
+iwalk(zoom_S_densi[[1]][[2]], ~ {
+  cat('#### ', .y, '\n\n')
+  print(.x)
+  cat('\n\n')
+})
+
+```
+
+:::
+
+::::
+
+

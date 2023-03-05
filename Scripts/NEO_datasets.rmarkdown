@@ -1,0 +1,1508 @@
+---
+title: "NEO Workshop"
+author: "Amélie Lehuen"
+description: "add info on script"
+date: "`r format(Sys.time(), '%d %B %Y')`"
+
+editor: visual
+execute:
+  eval: true
+  echo: false
+  message: false
+  warning: false
+  output: true
+  include: false
+editor_options: 
+  chunk_output_type: console
+---
+
+
+# Introduction
+
+The aim of the workshop is to...
+
+
+```{r}
+#| label: load-packages
+#| code-summary: "Packages"
+
+library(knitr)
+library(readxl) ; library(openxlsx)
+library(beepr); library(clipr)
+library(tidyverse); library(data.table)
+library(broom); library(purrr) # tidy,glance,augment
+library(lubridate)
+library(rstatix); library(Hmisc)  # corr and pvalue calculation
+
+# SIG
+library(sf); library(sfheaders)
+library(rnaturalearth) # library(raster)
+library(tmap)
+library(tmaptools) # tmap_mode; for static and interactive maps
+
+# Graphics packages
+library(scales); library(grafify)
+library(RColorBrewer)
+library(ggpubr)
+library(GGally)
+library(plotly)
+library(ggdist)
+library(introdataviz) # geom_split_violin # devtools::install_github("psyteachr/introdataviz")
+
+sf_use_s2(FALSE)
+```
+
+```{r}
+#| label: workenvir
+
+rm(list=ls())
+
+wdsource <- "Data/"
+wdres <- "Results/"
+wdmat <- "Matrices/"
+wdgraph <- "Plots/"
+wdGIS <- "SIG/"
+
+refresh_SNO<-FALSE # TRUE to collect data online and recreate matrices
+```
+
+```{r}
+#| label: graphchart
+
+theme_set(theme_bw(base_size = 16)) # theme_gray() theme_bw() theme_light() theme_dark()
+# My_Theme <- theme(
+#   axis.title.x = element_text(size = 16),
+#   axis.title.y = element_text(size = 16))
+
+pal_clb <- function(x) {graf_col_palette(palette = "muted")(x)}; # show_col(pal_clb(4))
+colbdd <- pal_clb(4)
+colBin<-c(pal_clb(6)[1],pal_clb(6)[2]); colMisc<-pal_clb(6)[6]# show_col(colBin)
+Scalc_bin<- function() {scale_colour_manual(values=colBin)}
+Scalc_lon<- function(x) {scale_colour_manual(values=pal_clb(x))}
+Scalf_lon<- function(x) {scale_fill_manual(values=pal_clb(x))}
+Scale_brew <- function() {scale_colour_brewer(palette="Spectral",aesthetics=c("colour","fill"))}
+```
+
+```{r}
+#| label: functmade
+
+loadRData <- function(fileName){
+#loads an RData file, and returns it
+    load(fileName)
+    mget(ls()[ls() != "fileName"])
+}
+
+# ggpairs custom colors on corr
+corr_col <- function(data, mapping, method="p", use="pairwise", ...){
+  # grab data
+  x <- eval_data_col(data, mapping$x)
+  y <- eval_data_col(data, mapping$y)
+  # calculate correlation
+  corr <- cor(x, y, method=method, use=use)
+  # calculate colour based on correlation value
+  colFn <- colorRampPalette(c("blue", "white", "red"), interpolate ='spline')
+  fill <- colFn(100)[findInterval(corr, seq(-1, 1, length=100))]
+  ggally_text(
+    label = as.character(round(corr, 2)),
+    mapping = aes(),
+    xP = 0.5, yP = 0.5,
+    ...) + #  ggally_cor(data = data, mapping = mapping, ...) + 
+    theme_void() +
+    theme(panel.background = element_rect(fill=fill))
+
+} #wrap(cor_func,method = 'spearman', symbol = "Corr:\n")
+
+# Function for corr ad pvalue table x is a matrix containing the data
+# method : correlation method. "pearson"" or "spearman"" is supported
+# removeTriangle : remove upper or lower triangle
+# results :  if "html" or "latex"
+# the results will be displayed in html or latex format
+corstars <-function(x, method=c("pearson", "spearman"), 
+                    removeTriangle=c("upper", "lower"),
+                     result=c("none", "html", "latex")){
+    #Compute correlation matrix
+    require(Hmisc)
+    x <- as.matrix(x)
+    correlation_matrix<-rcorr(x, type=method[1])
+    R <- correlation_matrix$r # Matrix of correlation coeficients
+    p <- correlation_matrix$t # Matrix of p-value 
+    
+    ## Define notions for significance levels; spacing is important.
+    mystars <- ifelse(p < .0001, "****", 
+                      ifelse(p < .001, "***", 
+                             ifelse(p < .01, "**", 
+                                    ifelse(p < .05, "*", " "))))
+    
+    ## trunctuate the correlation matrix to two decimal
+    R <- format(round(cbind(rep(-1.11, ncol(x)), R), 2))[,-1]
+    
+    ## build a new matrix that includes the correlations with their apropriate stars
+    Rnew <- matrix(paste(R, mystars, sep=""), ncol=ncol(x))
+    diag(Rnew) <- paste(diag(R), " ", sep="")
+    rownames(Rnew) <- colnames(x)
+    colnames(Rnew) <- paste(colnames(x), "", sep="")
+    
+    ## remove upper/lower triangle of correlation matrix
+    if(removeTriangle[1]=="upper"){
+      Rnew <- as.matrix(Rnew)
+      Rnew[upper.tri(Rnew, diag = TRUE)] <- ""
+    }
+    else if(removeTriangle[1]=="lower"){
+      Rnew <- as.matrix(Rnew)
+      Rnew[lower.tri(Rnew, diag = TRUE)] <- ""
+    }
+    
+    ## remove last column and return the correlation matrix
+    Rnew <- as.data.frame(Rnew)
+    Rnew <- cbind(Rnew[1:length(Rnew)-1])
+    if (result[1]=="none") return(Rnew)
+    else{
+      if(result[1]=="html") print(xtable(Rnew), type="html")
+      else print(xtable(Rnew), type="latex") 
+    }
+} 
+
+```
+
+
+# Load of Data
+
+All data treatment has been conducted with `r R.version.string` <!--# except for MARS3D pre-treatment on Matlab 2019a -->. Significance levels are tagged for p \< .0001 with "\*\*\*\*", p \< .001 with "\*\*\*", p \< .01 with "\*\*", p \< .05 with "\*".
+
+<!-- Basic variables -->
+
+```{r}
+#| label: basicvar
+
+name_bases <- c("BENTHOBS","PHYTOBS","SOMLIT","COASTHF")
+SNO_pal<-pal_clb(4); names(SNO_pal)<-name_bases
+  
+SNO_Areas<-paste(wdGIS,"SNO_Areas.shp",sep="")
+  SNO_Areas<-st_read(SNO_Areas,quiet=TRUE,crs=4326 ) # %>% st_transform(2154)
+# st_crs(SNO_Areas)
+```
+
+
+<!-- Output binder and data -->
+
+```{r}
+#| label: outfiles
+
+binderout <- sprintf("%sNEO_wshp.xlsx",wdres)
+rdataout  <- sprintf("%sNEO_wshp",wdmat)
+# if exists
+# load(rdataout)
+```
+
+
+<!-- Home made functions -->
+
+```{r}
+#| label: desc_data
+
+dat_desc<-function(df){
+  bdd_base<-unique(df$bdd_base)
+  sno_name<-unique(df$bdd_table)
+  obsnbtot <-count(df) %>%
+    pull() %>% 
+    formatC(., format="f", big.mark=",", digits=0)
+  varnbtot <- ncol(df)
+  yearsrange <- df %>% 
+    summarise(across(sampling_date,
+                     list(start=~year(min(.,na.rm=TRUE)),
+                          end=~year(max(.,na.rm=TRUE))))) %>%
+    unlist(., use.names=FALSE) %>%
+    paste(collapse = " to ")
+  nbstatmt <- df %>% 
+    mutate(dfMonth=month(sampling_date)) %>% # month.abb[month(sampling_date)]) %>%
+    group_by(dfMonth) %>% 
+    summarise(nbstat=n_distinct(station)) %>%
+    arrange(desc(nbstat)) %>% 
+    mutate(cumprop = cumsum(nbstat)/sum(nbstat)) %>% 
+    filter(cumprop<=0.6) %>%
+    arrange(match(dfMonth, month.abb)) %>% 
+    pull(dfMonth,unique(cumprop)) %>% 
+    paste(collapse = ", ")
+  nbstattot <- df %>% 
+    summarise(n_distinct(station)) %>% 
+    pull()
+  nbstatyr <- df %>% 
+      mutate(dfYear  = year(sampling_date)) %>%
+    group_by(dfYear) %>% 
+    summarise(nbstat=n_distinct(station)) %>%
+    summarise(nbstat=round(mean(nbstat),0)) %>% 
+    pull()
+  sno_all_desc<-list(bdd_base=bdd_base,
+                     sno_name=sno_name,
+                     obsnbtot=obsnbtot,
+                     varnbtot=varnbtot,
+                     yearsrange=yearsrange,
+                     nbstatmt=nbstatmt,
+                     nbstattot=nbstattot,
+                     nbstatyr=nbstatyr)
+  return(sno_all_desc)
+}
+
+field_sel<-function(dfset,dfsetvar){ # dfset=bo_set$bo_macro dfsetvar=bo_setvar
+  dfset %>%
+    st_drop_geometry() %>%
+    mutate(across(everything(),as.factor))  %>% 
+    summarise(across(everything(),nlevels))
+  num_fields<-names(dfset %>%
+          st_drop_geometry() %>% 
+          select(where(is.numeric) & !any_of(dfsetvar)))
+  facto_fields<-names(dfset  %>%
+          st_drop_geometry() %>% 
+          select((!where(is.numeric) & any_of(dfsetvar)) |
+                   (where(is.numeric) & any_of(dfsetvar))) %>%
+          mutate(across(everything(),as.factor)) %>%
+          select_if(~ nlevels(.) <= 25) %>%
+          select_if(~ nlevels(.) >= 2)) %>%
+          union(c("station","dfYear","dfMonth"))
+  descr_fields<-names(dfset %>%
+          st_drop_geometry() %>% 
+          select((!where(is.numeric) & !any_of(dfsetvar))) %>%
+          mutate(across(everything(),as.factor)) #%>%
+          # select_if(~ nlevels(.) > 0) %>%
+          # select_if(~ nlevels(.) <= 2)
+          )
+  disca_fields<-setdiff(names(dfset %>% st_drop_geometry()),
+                            c(num_fields,facto_fields,descr_fields))
+  return(list(num_fields=num_fields,
+              facto_fields=facto_fields,
+              descr_fields=descr_fields,
+              disca_fields=disca_fields))
+}
+```
+
+
+## BENTHOBS
+
+Data are available on https://data.benthobs.fr/. There are different files:
+
+- **granulometry** TSV file with granulometry data. 
+
+<!-- - **hydrology** TSV file with hydrology data.  -->
+
+- **macrofauna** TSV file with macrofauna data. 
+
+- **organicmatter** TSV file with organic matter data
+
+
+```{r}
+#| label: benthos_load
+
+name_base <- "BENTHOBS"
+
+if (refresh_SNO){
+  benthobs_site <- "https://data.benthobs.fr/files/latest/all_sites/"
+  download.file(paste0(benthobs_site,"granulometry.tsv"),
+                          destfile=sprintf("%sBENTHOBS/granulometry.tsv",wdsource))
+  # download.file(paste0(benthobs_site,"hydrology.tsv"),
+  #                         destfile=sprintf("%sBENTHOBS/hydrology.tsv",wdsource))
+  download.file(paste0(benthobs_site,"macrofauna.tsv"),
+                          destfile=sprintf("%sBENTHOBS/macrofauna.tsv",wdsource))
+  download.file(paste0(benthobs_site,"organicmatter.tsv"),
+                          destfile=sprintf("%sBENTHOBS/organicmatter.tsv",wdsource))
+  name_file<-c("granulometry","macrofauna","organicmatter") #,"hydrology"
+  name_df<-c("bo_granu","bo_macro","bo_orga") #,"bo_hydro"
+  
+  bo_set_raw <- lapply(sprintf("%sBENTHOBS/%s.tsv",
+            wdsource,name_file),
+            read_tsv)
+  
+  bo_set <- bo_set_raw %>%
+    setNames(name_df) %>% 
+    Map(cbind, ., bdd_table=names(.)) %>% 
+    lapply(.  %>%
+      as.data.frame() %>% 
+      rename(sampling_date=`Sampling date`,
+             station=Station,
+             longitude=Longitude,
+             latitude=Latitude) %>% 
+      mutate(bdd_base = name_base) %>%
+      mutate(dfMonth = month(sampling_date), #month.abb[month(sampling_date)],
+             dfYear  = year(sampling_date)) %>%
+      relocate(bdd_base,bdd_table) %>% 
+      mutate(across(where(is.logical),as.character)) %>% 
+      select(-contains("...")))
+  
+  bo_set <- bo_set %>%
+    lapply(.  %>%
+     # slight change of title of stations to distinguish them from other sno
+      mutate(station=ifelse(station=="Comprian", "Comprian_bo", station)) %>%
+      mutate(station=ifelse(station=="Antioche", "Antioche_bo", station)))
+  
+  bo_setvar <- Reduce(intersect, lapply(bo_set, names))
+  
+  bo_sf <- lapply(bo_set, st_as_sf, 
+                  coords=c("longitude","latitude"),
+                  crs=4326,remove = FALSE)
+  bo_coord <- bo_sf %>% lapply( . %>% 
+    select(c("bdd_base","bdd_table","station","longitude","latitude")) %>% 
+    summarise(base::unique(.))) %>% 
+    bind_rows() %>% 
+    as.data.frame(.) %>% 
+    mutate("TRUE" = TRUE) %>% 
+    pivot_wider(names_from = bdd_table, values_from = "TRUE", values_fill = FALSE) %>% 
+    st_as_sf()
+  
+  bo_set <- bo_set %>%
+    lapply(.  %>%
+      mutate(across(c(station,dfMonth), as.factor))) #,dfYear
+  
+  save(list=(ls(pattern="^bo.*")),file = sprintf("%s_bo.RData",rdataout))
+} else {
+  load(file = sprintf("%s_bo.RData",rdataout))
+}
+```
+
+```{r}
+#| label: benth_data
+
+df_set<-bo_set
+df_setvar<-bo_setvar %>%
+  paste(collapse = ", ")
+df_names<-names(df_set)
+df_desc <- map(df_set,dat_desc)
+
+bo_field<- map(bo_set,~field_sel(.,bo_setvar))
+```
+
+
+The BENTHOBS data set count `r length(df_set)` tables that has the common variables:
+
+> `r df_setvar`
+
+-   **`r df_names[1]`** (n= `r df_desc[[1]]$obsnbtot`) contains `r df_desc[[1]]$varnbtot` variables. Period covered is from `r df_desc[[1]]$yearsrange`, sampling are made mainly at the months of `r month.abb[df_desc[[1]]$nbstatmt]`, on `r df_desc[[1]]$nbstattot` different stations, with a mean of `r df_desc[[1]]$nbstatyr` per year.
+
+-   **`r df_names[2]`** (n= `r df_desc[[2]]$obsnbtot`) contains `r df_desc[[2]]$varnbtot` variables. Period covered is from `r df_desc[[2]]$yearsrange`, sampling are made mainly at the months of `r month.abb[df_desc[[2]]$nbstatmt]`, on `r df_desc[[2]]$nbstattot` different stations, with a mean of `r df_desc[[2]]$nbstatyr` per year.
+
+-   **`r df_names[3]`** (n= `r df_desc[[3]]$obsnbtot`) contains `r df_desc[[3]]$varnbtot` variables. Period covered is from `r df_desc[[3]]$yearsrange`, sampling are made mainly at the months of `r month.abb[df_desc[[3]]$nbstatmt]`, on `r df_desc[[3]]$nbstattot` different stations, with a mean of `r df_desc[[3]]$nbstatyr` per year.
+
+
+```{r}
+#| label: tbl-desc_data1
+#| tbl-cap: "Summaries of datatables from data set"
+#| include: true
+df_desc %>% 
+  bind_rows() %>% 
+  select(!bdd_base) %>% 
+  kable()
+```
+
+
+## PHYTOBS
+Data are available on https://data.phytobs.fr/. There are different files: 
+- **Analyst** files containing single taxon counts. 
+- **Phytobs** files containing single counts for taxon groups that are part of the SNO labelled taxon groups. 
+- **combined** files aggregating the two previous tables?
+
+
+```{r}
+#| label: phythos_load
+
+name_base <- "PHYTOBS"
+
+if (refresh_SNO){
+  phytobs_site <- "https://data.phytobs.fr/files/latest/all_sites/"
+  download.file(paste0(phytobs_site,"Phytobs.csv"),
+                          destfile="./Data/PHYTOBS/Phytobs.csv")
+  download.file(paste0(phytobs_site,"Analyst.csv"),
+                          destfile="./Data/PHYTOBS/Analyst.csv")
+  download.file(paste0(phytobs_site,"combined.csv"),
+                          destfile="./Data/PHYTOBS/combined.csv")
+  name_file<-c("Analyst","Phytobs","combined")
+  name_df<-c("po_analy","po_phyto","po_comb")
+  
+  po_set_raw <- lapply(sprintf("%sPHYTOBS/%s.csv",
+            wdsource,name_file),
+            read_delim,delim=";")
+  
+  po_set <- po_set_raw %>%
+    setNames(name_df) %>% 
+    Map(cbind, ., bdd_table=names(.)) %>% 
+    lapply(.  %>%
+      as.data.frame() %>% 
+      rename(sampling_date=sampling_date,
+             station=site,
+             longitude=longitude,
+             latitude=latitude) %>% 
+      mutate(bdd_base = name_base) %>%
+      mutate(dfMonth = month(sampling_date), #month.abb[month(sampling_date)],
+             dfYear  = year(sampling_date)) %>%
+      mutate(across(where(is.logical),as.character)) %>% 
+      select(-contains("...")) %>% 
+      relocate(bdd_base,bdd_table))
+  
+  po_set <- po_set %>%
+    lapply(.  %>%
+     # slight change of title of stations to distinguish them from other sno
+      mutate(station=ifelse(station=="Luc-sur-Mer", "Luc-sur-Mer_po", station)))
+  
+  po_setvar <- Reduce(intersect, lapply(po_set, names))
+  
+  po_sf <- lapply(po_set,st_as_sf, coords=c("longitude","latitude"),
+                      crs=4326,remove = FALSE)
+  po_coord <- po_sf %>% lapply( . %>% 
+    select(c("bdd_base","bdd_table","station","longitude","latitude")) %>% 
+    summarise(unique(.))) %>% 
+    bind_rows() %>% 
+    as.data.frame(.) %>% 
+    mutate("TRUE" = TRUE) %>% 
+    pivot_wider(names_from = bdd_table, values_from = "TRUE", values_fill = FALSE) %>% 
+    st_as_sf()
+  
+  po_set <- po_set %>%
+    lapply(.  %>%
+      mutate(across(c(station,dfMonth), as.factor))) #,dfYear
+  
+  save(list=(ls(pattern="^po.*")),file = sprintf("%s_po.RData",rdataout))
+} else {
+  load(file = sprintf("%s_po.RData",rdataout))
+}
+
+```
+
+```{r}
+#| label: phyt_data
+
+df_set<-po_set
+df_setvar<-po_setvar %>%
+  paste(collapse = ", ")
+df_names<-names(df_set)
+df_desc <- map(df_set,dat_desc)
+
+po_field<- map(po_set,~field_sel(.,po_setvar))
+```
+
+
+The PHYTOBS data set count `r length(df_set)` tables that has the common variables :
+
+> `r df_setvar`
+
+-   **`r df_names[1]`** (n= `r df_desc[[1]]$obsnbtot`) contains `r df_desc[[1]]$varnbtot` variables. Period covered is from `r df_desc[[1]]$yearsrange`, sampling are made mainly at the months of `r month.abb[df_desc[[1]]$nbstatmt]`, on `r df_desc[[1]]$nbstattot` different stations, with a mean of `r df_desc[[1]]$nbstatyr` per year.
+
+-   **`r df_names[2]`** (n= `r df_desc[[2]]$obsnbtot`) contains `r df_desc[[2]]$varnbtot` variables. Period covered is from `r df_desc[[2]]$yearsrange`, sampling are made mainly at the months of `r month.abb[df_desc[[2]]$nbstatmt]`, on `r df_desc[[2]]$nbstattot` different stations, with a mean of `r df_desc[[2]]$nbstatyr` per year.
+
+-   **`r df_names[3]`** (n= `r df_desc[[3]]$obsnbtot`) contains `r df_desc[[3]]$varnbtot` variables. Period covered is from `r df_desc[[3]]$yearsrange`, sampling are made mainly at the months of `r month.abb[df_desc[[3]]$nbstatmt]`, on `r df_desc[[3]]$nbstattot` different stations, with a mean of `r df_desc[[3]]$nbstatyr` per year.
+
+
+```{r}
+#| label: tbl-desc_data2
+#| tbl-cap: "Summaries of datatables from data set"
+#| include: true
+df_desc %>% 
+  bind_rows() %>% 
+  select(!bdd_base) %>% 
+  kable()
+```
+
+
+## SOMLIT
+Data are available on https://www.somlit.fr/demande-de-donnees/. You have to request with your mail each files available. Please refer to [@liénart2017], [@liénart2018], [@cocquempot2019] and [@lheureux2022] for detail about the dataset building and history.  
+![SOMLIT parametres](../images/tableau_parametre.png){#fig-parsom}
+
+
+```{r}
+#| label: somlit_load
+
+name_base <- "SOMLIT"
+
+if (refresh_SNO){
+  name_file<-c("Somlit_Extraction_ctd",
+               "Somlit_Extraction_hydro",
+               "Somlit_Extraction_piconano")
+  name_df<-c("sl_ctd","sl_hydro","sl_piconano")
+  
+  sl_set_raw <- lapply(sprintf("%sSOMLIT/%s.csv",
+            wdsource,name_file),
+            read_delim,skip = 2,comment="//",delim=";")
+  
+  sl_set <- sl_set_raw %>%
+    setNames(name_df) %>% 
+    Map(cbind, ., bdd_table=names(.)) %>% 
+    lapply(.  %>%
+      as.data.frame() %>% 
+      setNames(sub("\\*", "", names(.))) %>% 
+      rename(sampling_date=DATE,
+             station=nomSite,
+             longitude=gpsLong,
+             latitude=gpsLat) %>% 
+      mutate(bdd_base = name_base) %>%
+      mutate(dfMonth = month(sampling_date), #month.abb[month(sampling_date)],
+             dfYear  = year(sampling_date)) %>%
+      mutate(across(where(is.logical),as.character)) %>% 
+      select(-contains("...")) %>% 
+      relocate(bdd_base,bdd_table))
+  
+  sl_setvar <- Reduce(intersect, lapply(sl_set, names))
+  
+  sl_sf <- lapply(sl_set,st_as_sf, coords=c("longitude","latitude"),
+                      crs=4326,remove = FALSE)
+  sl_coord <- sl_sf %>% lapply( . %>% 
+    select(c("bdd_base","bdd_table","station","longitude","latitude")) %>% 
+    summarise(unique(.))) %>% 
+    bind_rows() %>% 
+    as.data.frame(.) %>% 
+    mutate("TRUE" = TRUE) %>% 
+    pivot_wider(names_from = bdd_table, values_from = "TRUE", values_fill = FALSE) %>% 
+    st_as_sf()
+  
+  sl_set <- sl_set %>%
+    lapply(.  %>%
+      mutate(across(c(station,dfMonth), as.factor))) #,dfYear
+  
+  save(list=(ls(pattern="^sl.*")),file = sprintf("%s_sl.RData",rdataout))
+} else {
+  load(file = sprintf("%s_sl.RData",rdataout))
+}
+
+```
+
+```{r}
+#| label: soml_data
+
+df_set<-sl_set
+df_setvar<-sl_setvar %>%
+  paste(collapse = ", ")
+df_names<-names(df_set)
+df_desc <- map(df_set,dat_desc)
+
+sl_field<- map(sl_set,~field_sel(.,sl_setvar))
+```
+
+
+Parameters available are in @fig-parsom. The SOMLIT data set count `r length(df_set)` tables that has the common variables :
+
+> `r df_setvar`
+
+-   **`r df_names[1]`** (n= `r df_desc[[1]]$obsnbtot`) contains `r df_desc[[1]]$varnbtot` variables. Period covered is from `r df_desc[[1]]$yearsrange`, sampling are made mainly at the months of `r month.abb[df_desc[[1]]$nbstatmt]`, on `r df_desc[[1]]$nbstattot` different stations, with a mean of `r df_desc[[1]]$nbstatyr` per year.
+
+-   **`r df_names[2]`** (n= `r df_desc[[2]]$obsnbtot`) contains `r df_desc[[2]]$varnbtot` variables. Period covered is from `r df_desc[[2]]$yearsrange`, sampling are made mainly at the months of `r month.abb[df_desc[[2]]$nbstatmt]`, on `r df_desc[[2]]$nbstattot` different stations, with a mean of `r df_desc[[2]]$nbstatyr` per year.
+
+-   **`r df_names[3]`** (n= `r df_desc[[3]]$obsnbtot`) contains `r df_desc[[3]]$varnbtot` variables. Period covered is from `r df_desc[[3]]$yearsrange`, sampling are made mainly at the months of `r month.abb[df_desc[[3]]$nbstatmt]`, on `r df_desc[[3]]$nbstattot` different stations, with a mean of `r df_desc[[3]]$nbstatyr` per year.
+
+
+```{r}
+#| label: tbl-desc_data3
+#| tbl-cap: "Summaries of datatables from data set"
+#| include: true
+df_desc %>% 
+  bind_rows() %>% 
+  select(!bdd_base) %>% 
+  kable()
+```
+
+
+## COASTHF
+Data are available on https://data.coriolis-cotier.org/fr. In the menu, the active platform toggle button is activated and the COASTHF network is selected. All available stations has been selected. Detailed information are available on https://coast-hf.fr/. The selected buoys in data are listed in @tbl-coasthf
+
+
+```{r}
+#| label: coasthf_load
+name_base <- "COASTHF"
+cf_buoy<-as.data.frame(rbind(
+               c("EXIN0003","POEM"),
+               c("EXIN0004","SOLEMIO"),
+               c("EXIN0002","EOL"),
+               c("EXIN0001","ARCACHON B13"),
+               c("6100284","Mesurho"),
+               c("EXIN0006","SOLA"),
+               c("6200021","Vilaine Molit"),
+               c("IF000700","SMART"),
+               c("6200450","Iroise Stanne"),
+               c("IF000997","Iroise Stanne TEST"),
+               c("6200310","Smile LucSurMer"),
+               c("SCENES","SCENES"),
+               c("6200443","Carnot"),
+               c("EXIN0005","ASTAN"))
+               )
+names(cf_buoy) <- c("Code","Name")
+
+if (refresh_SNO){
+  
+  cf_set_raw <- lapply(sprintf("%s/COASTHF/mooring-buoys-time-series-%s.csv",
+            wdsource,cf_buoy[,1]),
+            read_csv)
+  
+  cf_set <- cf_set_raw %>% 
+    setNames(cf_buoy[,2]) %>% 
+    Map(cbind, ., station=cf_buoy[,2]) %>%
+    lapply(.  %>% 
+      as.data.frame() %>% 
+      mutate(PLATFORM = as.character(PLATFORM)) %>% 
+      rename(sampling_date=`DATE (yyyy-mm-ddThh:mi:ssZ)`,
+             bdd_table=PLATFORM,
+             longitude=`LONGITUDE (degree_east)`,
+             latitude=`LATITUDE (degree_north)`) %>% 
+      mutate(bdd_base = name_base) %>%
+      mutate(dfMonth = month(sampling_date), #month.abb[month(sampling_date)],
+             dfYear  = year(sampling_date)) %>%
+      mutate(across(where(is.logical),as.character)) %>% 
+      select(-contains("...")) %>%
+      relocate(bdd_base,bdd_table))
+  
+  cf_setvar <- Reduce(intersect, lapply(cf_set, names))
+  
+  cf_sf <- lapply(cf_set,st_as_sf, coords=c("longitude","latitude"),
+                      crs=4326,remove = FALSE)
+  cf_coord <- cf_sf %>% lapply( . %>% 
+    select(c("bdd_base","bdd_table","station","longitude","latitude")) %>% 
+    summarise(unique(.))) %>% 
+    bind_rows()
+  
+  cf_set <- cf_set %>%
+    lapply(.  %>%
+      mutate(across(c(station,dfMonth), as.factor))) #,dfYear
+  
+  save(list=(ls(pattern="^cf.*")),file = sprintf("%s_cf.RData",rdataout))
+} else {
+  load(file = sprintf("%s_cf.RData",rdataout))
+}
+
+```
+
+```{r}
+#| label: tbl-coasthf
+#| include: true
+#| tbl-cap: "List of buoys"
+
+kable(cf_buoy)
+```
+
+```{r}
+#| label: coas_data
+
+df_set<-cf_set
+df_setvar<-cf_setvar %>%
+  paste(collapse = ", ")
+df_names<-names(df_set)
+df_desc <- map(df_set,dat_desc)
+
+cf_field<- map(cf_set,~field_sel(.,cf_setvar))
+```
+
+
+The COASTHF data set count `r length(df_set)` tables that has the common variables :
+
+> `r df_setvar`
+
+
+```{r}
+#| label: tbl-desc_data4
+#| tbl-cap: "Summaries of datatables from data set"
+#| include: true
+df_desc %>% 
+  bind_rows() %>% 
+  select(!bdd_base) %>% 
+  kable()
+```
+
+
+# Global data sets description
+
+## Map of sites
+
+```{r}
+#| label: prefig-map
+
+sno_coord <- rbind(bo_coord %>%
+                     select(c("bdd_base","station",
+                              "longitude","latitude")),
+                   po_coord %>%
+                     select(c("bdd_base","station",
+                              "longitude","latitude")),
+                   sl_coord %>%
+                     select(c("bdd_base","station",
+                              "longitude","latitude")),
+                   cf_coord %>% select(c("bdd_base","station","longitude","latitude")))
+st_write(obj = sno_coord, paste(wdGIS,"sno_coord.shp",sep=""), delete_layer = TRUE)
+
+SNO_Areas_S_tmp <- SNO_Areas %>% filter(Category %in% "SMALL")
+SNO_Areas_M_tmp <- SNO_Areas %>% filter(Category %in% "MEDIUM")
+SNO_Areas_L_tmp <- SNO_Areas %>% filter(Category %in% "LARGE")
+
+SNO_Areas_S <- SNO_Areas_S_tmp %>%
+  mutate(intersection = as.integer(st_intersects(geometry,SNO_Areas_M_tmp)),
+                      Int_Area_Medium = if_else(is.na(intersection),"NA",
+                                               SNO_Areas_M_tmp$Int_Area[intersection])) %>% 
+  mutate(intersection = as.integer(st_intersects(geometry,SNO_Areas_L_tmp)),
+                      Int_Area_Large = if_else(is.na(intersection),"NA",
+                                               SNO_Areas_L_tmp$Int_Area[intersection])) %>% 
+  rename(Int_Area_Small=Int_Area) %>% 
+  select(-c(Category,intersection)) %>%
+  arrange(id)
+
+sno_coord <- sno_coord %>%
+  mutate(intersection = as.integer(st_intersects(geometry,SNO_Areas_S_tmp)),
+                      Int_Area_Small = if_else(is.na(intersection),"NA",
+                                               SNO_Areas_S_tmp$Int_Area[intersection])) %>%
+  mutate(intersection = as.integer(st_intersects(geometry,SNO_Areas_M_tmp)),
+                      Int_Area_Medium = if_else(is.na(intersection),"NA",
+                                               SNO_Areas_M_tmp$Int_Area[intersection])) %>% 
+  mutate(intersection = as.integer(st_intersects(geometry,SNO_Areas_L_tmp)),
+                      Int_Area_Large = if_else(is.na(intersection),"NA",
+                                               SNO_Areas_L_tmp$Int_Area[intersection])) %>% 
+  select(-intersection)
+sno_coord$Int_Area_Small[sno_coord$Int_Area_Small=="NA"]<-NA
+sno_coord$Int_Area_Medium[sno_coord$Int_Area_Medium=="NA"]<-NA
+sno_coord$Int_Area_Large[sno_coord$Int_Area_Large=="NA"]<-NA
+
+bo_set <- bo_set %>% map(.,left_join,sno_coord, 
+                         by = c("bdd_base", "station", "latitude", "longitude"))
+po_set <- po_set %>% map(.,left_join,sno_coord, 
+                         by = c("bdd_base", "station", "latitude", "longitude"))
+sl_set <- sl_set %>% map(.,left_join,sno_coord, 
+                         by = c("bdd_base", "station", "latitude", "longitude"))
+cf_set <- cf_set %>% map(.,left_join,sno_coord, 
+                         by = c("bdd_base", "station", "latitude", "longitude"))
+
+areas_L<-SNO_Areas_S %>%
+  st_drop_geometry(SNO_Areas_S) %>% 
+  distinct(Int_Area_Large) %>% 
+  pull %>% 
+  as.list
+areas_S<-SNO_Areas_S %>%
+  st_drop_geometry(SNO_Areas_S) %>% 
+  arrange(id) %>% 
+  select(Int_Area_Large,Int_Area_Small) %>% 
+  split(.$Int_Area_Large) %>%
+  modify_depth(1,as.list) %>% 
+  modify_depth(1,~discard_at(.,"Int_Area_Large")) %>% 
+  list_flatten(.,name_spec = "{outer}") %>%
+  modify_depth(1,as.list)
+areas_S<-areas_S[SNO_Areas_S %>%
+                           distinct(Int_Area_Large) %>%
+                           pull]
+
+rm(bo_sf,po_sf,sl_sf,cf_sf)
+```
+
+```{r}
+#| label: fig-map
+#| include: true
+#| fig-cap: "Maps of data sets locations"
+
+tmap_mode("view") # "plot" "view"
+sno_map<-
+  tm_basemap(leaflet::providers$OpenStreetMap.HOT) +
+  tm_shape(SNO_Areas %>% filter(Category=="LARGE")) +
+    tm_borders(col=colMisc, lwd = 3, alpha=0.5) +
+  tm_shape(SNO_Areas %>% filter(Category=="MEDIUM")) +
+    tm_polygons(col="Int_Area", border.col = colMisc,
+                lwd = 3, alpha=0.2,
+            legend.show = FALSE) +
+  tm_shape(SNO_Areas %>% filter(Category=="SMALL")) +
+    tm_fill(col="Int_Area", alpha=0.5, popup.vars = TRUE,
+            legend.show = FALSE) +
+  tm_shape(sno_coord) +
+    tm_dots(jitter = 0.01,
+            col="bdd_base", palette=SNO_pal,size=0.1,
+            clustering = FALSE, popup.vars = TRUE) +
+  tm_layout(legend.outside = TRUE)
+
+sno_map +
+  tm_minimap()
+# tmap_save(sno_map, filename = "NEO_map.html")
+
+```
+
+
+## Timeline description
+All records of all tables of all SNO are represented in @fig-global_data.
+
+```{r}
+#| label: time_data
+sno_set<-c(bo_set,po_set,sl_set,cf_set) 
+
+timeline <- sno_set %>% lapply(. %>% 
+  select(bdd_base,bdd_table,
+         sampling_date,station) %>% 
+  mutate(sampling_date=round_date(sampling_date, unit = "day")) %>%
+  unique()) %>% 
+  bind_rows %>%
+  group_by(bdd_base)
+```
+
+```{r}
+#| label: fig-global_data
+#| fig-cap: "Time series of each SNO's tables"
+#| include: true
+#| fig-height: 8
+#| fig-width: 10
+
+timeline %>% 
+  ggplot(aes(x=bdd_table, y=sampling_date, color=bdd_base)) +
+  coord_flip() +
+  scale_colour_manual(values=SNO_pal) +
+  facet_wrap(~bdd_base, scale="free", ncol=2) +
+  geom_jitter(size = 2, alpha = 0.25, width = 0.2) +
+  theme(legend.position = "bottom",
+        text = element_text(size = 11))
+
+```
+
+
+When looking in the timed data for each table, we can conclude that the tables po_comb and Iroise Stanne TEST (IF000997) can be discarded (@fig-global_data)
+
+
+```{r}
+#| label: reduce_data
+
+# bo_set$bo_hydro<-NULL
+po_set$to_comb<-NULL
+cf_set$IF000997<-NULL
+sno_set<-c(bo_set,po_set,sl_set,cf_set) 
+
+timeline <- sno_set %>% lapply(. %>% 
+  select(bdd_base,bdd_table,
+         sampling_date,station,
+         Int_Area_Large, Int_Area_Medium, Int_Area_Small) %>% 
+  mutate(sampling_date=round_date(sampling_date, unit = "day")) %>%
+  unique()) %>% 
+  bind_rows %>%
+  group_by(bdd_base)
+
+sno_S_filt<-function(snoset,IntAreaSmall){
+  map(snoset, ~ filter(.,Int_Area_Small==IntAreaSmall)) %>% 
+  keep(~dim(.)[1]>0)
+}
+sno_set_areas<-function(snoset,smallareas){
+  tmp<-map(smallareas,~sno_S_filt(snoset,.x))
+  names(tmp)<-smallareas
+  compact(tmp)
+}
+sno_set_S<-map(areas_S,~sno_set_areas(sno_set,.x))
+
+areas_sum<-timeline %>% 
+  ungroup %>% 
+  select(bdd_base,station,
+         Int_Area_Large,Int_Area_Medium,Int_Area_Small) %>% 
+  distinct()
+
+```
+
+```{r}
+#| label: split_data
+tmp<-sno_set_S
+names(tmp)<-paste0("sno_set_",names(tmp))
+list2env(tmp, envir = globalenv())
+iwalk(tmp, ~save(list=(.y), file = sprintf("%s_%s.RData",rdataout,.y)))
+```
+
+
+# Timeline region focus
+
+Data can then be distinguished by geographical areas, with the different scale chosen: first the large one (@fig-large_data) that emphasize that the Channel, the Atlantic and north Brittany are of the most interest. The small scale (@fig-small_data) is the preferred scale reveal the challenge of the workshop. The intermediate scale (@fig-medium_data) shows that when there is geographically close SNO data sets, they can be temporarily not that relevant.
+
+
+```{r}
+#| label: fig-large_data
+#| fig-cap: "Time series of SNOs tables by large area"
+#| include: true
+#| column: page
+#| fig-height: 10
+#| fig-width: 12
+#| fig-format: svg
+
+gp <- timeline %>% 
+  ggplot(aes(x=station, y=sampling_date, color=bdd_base)) +
+  coord_flip() +
+  scale_colour_manual(values=SNO_pal) +
+  facet_wrap(~Int_Area_Large, scale="free", ncol=2) +
+  geom_jitter(size = 2, alpha = 0.4, width = 0.2) +
+  guides(colour = guide_legend(nrow = 1)) +
+  theme(legend.position = "bottom",
+        text = element_text(size = 10))
+gp
+
+```
+
+
+## Small area time series
+
+
+```{r}
+#| label: prefig-small_data
+
+time_S<-function(timeline,IntAreaLarge) {  # IntAreaLarge="Manche"
+  gp<- timeline %>% 
+      filter(Int_Area_Large %in% IntAreaLarge) %>% 
+      drop_na(Int_Area_Small) %>% 
+    ggplot(aes(x=station, y=sampling_date, color=bdd_base)) +
+    coord_flip() +
+    # Scalc_lon(4) +
+    scale_colour_manual(values=SNO_pal) +
+    facet_wrap(~Int_Area_Small, scale="free", ncol=2) +
+    geom_jitter(size = 2, alpha = 0.4, width = 0.2) +
+    guides(colour = guide_legend(nrow = 1)) +
+    labs(caption=IntAreaLarge) +
+    theme(legend.position = "bottom",
+          text = element_text(size = 10))
+  gp
+  #ggplotly(gp)
+}
+map_S <- function(sno_map,SNO_Areas,IntAreaLarge){
+  sno_map +
+    tm_view(bbox = st_bbox(SNO_Areas %>% filter(Int_Area==IntAreaLarge)))
+}
+# focus_S_time<-map(areas_L,~time_S(timeline,.)) #zoom_S_time[[1]]
+# focus_S_map<-map(areas_L,~map_S(sno_map,SNO_Areas,.)) #zoom_S_map[[1]]
+focus_S_overview <- list(t=map(areas_L,~time_S(timeline,.)),
+                         m=map(areas_L,~map_S(sno_map,SNO_Areas,.))) %>% 
+  purrr::transpose(.)
+names(focus_S_overview)<-unlist(areas_L)
+
+```
+
+
+:::: {.column-page}
+::: panel-tabset
+### Manche
+
+
+```{r}
+#| label: fig-small_data
+#| fig-cap: "Time series of SNOs tables by small area"
+#| fig-subcap: 
+#|   - "Time Line"
+#|   - "Map"
+#| include: true
+#| fig-height: 5
+#| layout: [[66,34]]
+
+focus_S_overview[[1]]$t
+focus_S_overview[[1]]$m
+```
+
+
+### Nord Bretagne
+
+
+```{r}
+#| label: fig-small_data2
+#| fig-cap: "Time series of SNOs tables by small area"
+#| fig-subcap: 
+#|   - "Time Line"
+#|   - "Map"
+#| include: true
+#| fig-height: 5
+#| layout: [[66,34]]
+
+focus_S_overview[[2]]$t
+focus_S_overview[[2]]$m
+```
+
+
+### Atlantique
+
+
+```{r}
+#| label: fig-small_data3
+#| fig-cap: "Time series of SNOs tables by small area"
+#| fig-subcap: 
+#|   - "Time Line"
+#|   - "Map"
+#| include: true
+#| fig-height: 5
+#| layout: [[66,34]]
+
+focus_S_overview[[3]]$t
+focus_S_overview[[3]]$m
+```
+
+
+### Mediterranee
+
+
+```{r}
+#| label: fig-small_data4
+#| fig-cap: "Time series of SNOs tables by small area"
+#| fig-subcap: 
+#|   - "Time Line"
+#|   - "Map"
+#| include: true
+#| fig-height: 5
+#| layout: [[66,34]]
+
+focus_S_overview[[4]]$t
+focus_S_overview[[4]]$m
+```
+
+:::
+
+::::
+
+<!-- ## Medium area time series -->
+
+<!-- ```{r} -->
+<!-- #| label: prefig-medi_data -->
+
+<!-- time_M<-function(timeline,IntAreaLarge) {  -->
+<!--   gp<- timeline %>%  -->
+<!--       filter(Int_Area_Large==IntAreaLarge) %>%  -->
+<!--       drop_na(Int_Area_Medium) %>%  -->
+<!--     ggplot(aes(x=station, y=sampling_date, color=bdd_base)) + -->
+<!--     coord_flip() + -->
+<!--     scale_colour_manual(values=SNO_pal) + -->
+<!--     facet_wrap(~Int_Area_Medium, scale="free", ncol=2) + -->
+<!--     geom_jitter(size = 2, alpha = 0.4, width = 0.2) +    --> 
+<!--     guides(colour = guide_legend(nrow = 1)) + -->
+    <!-- labs(caption=IntAreaLarge) + -->
+<!--     theme(legend.position = "bottom", -->
+<!--           text = element_text(size = 10)) -->
+<!--   gp#ggplotly(gp) -->
+<!-- } -->
+
+<!-- map_M <- function(sno_map,SNO_Areas,IntAreaLarge){ -->
+<!--   sno_map + -->
+<!--     tm_view(bbox = st_bbox(SNO_Areas %>% filter(Int_Area==IntAreaLarge))) -->
+<!-- } -->
+<!-- # focus_M_time<-map(areas_L,~time_M(timeline,.)) #zoom_M_time[[1]] -->
+<!-- # focus_M_map<-map(areas_L,~map_M(sno_map,SNO_Areas,.)) #zoom_M_map[[1]] -->
+<!-- focus_M_overview <- list(t=map(areas_L,~time_M(timeline,.)), -->
+<!--                         m=map(areas_L,~map_M(sno_map,SNO_Areas,.))) %>%  -->
+<!--   purrr::transpose(.) -->
+<!-- names(focus_M_overview)<-unlist(areas_L) -->
+
+<!-- ``` -->
+
+<!-- :::: {.column-page} -->
+
+<!-- ::: {.panel-tabset} -->
+
+<!-- ```{r} -->
+<!-- #| label: fig-medium_data -->
+<!-- #| include: true -->
+<!-- #| results: asis -->
+<!-- #| fig-cap: "Time series of SNOs tables by small area" -->
+<!-- #| fig-subcap:  -->
+<!-- #|   - "Time Line" -->
+<!-- #|   - "Map" -->
+<!-- #| fig-width: 16 -->
+<!-- #| fig-height: 10 -->
+<!-- #| layout: [[66,34]] -->
+
+<!-- iwalk(focus_M_overview, ~ { -->
+<!--   cat('### ', .y, '\n\n') -->
+<!--   print(.x$t) -->
+<!--   print(.x$m) -->
+<!--   cat('\n\n') -->
+<!-- }) -->
+
+<!-- ``` -->
+
+<!-- :::  -->
+
+<!-- :::: -->
+
+# Areas of interest detailed analysis
+
+Voir https://dygraphs.com/ pour time series interactive
+
+```{r}
+#| label: prefig-small_focus
+
+# IntAreaLarge="Manche" # IntAreaSmall="Cabourg" 
+time_S_z<-function(IntAreaSmall,timeline) { 
+  gp<-timeline %>% 
+    filter(Int_Area_Small==IntAreaSmall) %>%
+    ggplot(aes(x=station, y=sampling_date, color=bdd_base)) +
+    coord_flip() +
+    scale_colour_manual(values=SNO_pal) +
+    geom_jitter(size = 2, alpha = 0.4, width = 0.2) +
+    guides(colour = guide_legend(nrow = 1)) +
+    labs(caption=IntAreaSmall) +
+    theme(legend.position = "bottom",
+          text = element_text(size = 10))
+  ggplotly(gp)
+}
+map_S_z <- function(IntAreaSmall,sno_map,SNO_Areas){
+  sno_map +
+    tm_view(bbox = st_bbox(SNO_Areas %>% filter(Int_Area==IntAreaSmall)))
+}
+
+overview_S_z<-function(IntAreaLarge,timeline,sno_map,SNO_Areas){
+  seareas_L<- areas_sum %>%
+    select(Int_Area_Large,Int_Area_Small) %>% 
+    filter(Int_Area_Large==IntAreaLarge) %>%
+    drop_na(Int_Area_Small) %>% 
+    distinct(Int_Area_Small) %>%
+    arrange(Int_Area_Small) %>% 
+    pull %>% 
+    as.list
+  zoom_S_time<-map(seareas_L,~time_S_z(.,timeline)) # zoom_S_time[[1]]
+  names(zoom_S_time)<-unlist(seareas_L)
+  zoom_S_map<-map(seareas_L,~map_S_z(.,sno_map,SNO_Areas)) # zoom_S_map[[1]]
+  names(zoom_S_map)<-unlist(seareas_L)
+  list(t=zoom_S_time,m=zoom_S_map) %>% 
+    purrr::transpose()
+  # return(list(t=zoom_S_time,m=zoom_S_map))
+}
+
+zoom_S_overview<-map(areas_L,~overview_S_z(.,timeline,sno_map,SNO_Areas)) 
+names(zoom_S_overview)<-unlist(areas_L)
+# zoom_S_overview[[1]]$t[[1]]
+
+densi_S_z <- function(dfset,fieldf,IntAreaSmall){
+  # dfset=sno_set_small[[1]][[3]][[4]]
+  # fieldf=bo_field$bo_macro
+  # IntAreaSmall="Estuaire de la Liane"
+  gp<-dfset %>% #select(!c("geometry")) %>%
+    select(any_of(c(fieldf$num_fields,
+                    fieldf$facto_fields))) %>%
+    mutate(across(any_of(fieldf$facto_fields),factor)) %>%
+  ##   ggpairs(aes(color=station)) +
+    reshape2::melt(.) %>% 
+    ggplot(aes(x = dfMonth,y = value, col=dfYear, fill=dfYear)) +
+    geom_split_violin(alpha = 0.2,
+              show.legend = FALSE) +
+    geom_boxplot(alpha = 0.2,width = .1, 
+      outlier.shape = NA,show.legend = FALSE) +
+    geom_point(size = 1.3,alpha = .3,
+      position = position_jitter(seed = 1, width = .1)) +
+    facet_wrap(~variable, scales="free", ncol=4) + 
+    # guides(fill = "none") + 
+    guides(colour = guide_legend(nrow = 1)) +
+    labs(caption=IntAreaSmall) +
+    theme(axis.title = element_blank(),
+          legend.position = "bottom",
+          legend.title = element_blank()) +
+    Scale_brew()
+  gp
+  # ggplotly(gp)
+}
+sno_densi_S<-function(dfset,IntAreaSmall){
+  # dfset=sno_set_small[[1]][[3]]
+  dfset<-map(dfset,~select(.,!c("geometry")))
+  fieldf<- map(dfset,~field_sel(.,Reduce(intersect,map(dfset, names))))
+  map2(dfset,fieldf,~densi_S_z(.x,.y,IntAreaSmall))
+}
+
+zoom_S_densi <- map2(sno_set_S,areas_S,
+                                  ~map2(.x,.y,~sno_densi_S(.x,.y)))
+
+```
+
+
+## Manche
+### Estuaire de la Liane
+
+
+```{r}
+#| label: fig-S_focus11
+#| fig-cap: "Small area details data"
+#| fig-subcap: 
+#|   - "Time Line"
+#|   - "Map"
+#| include: true
+#| fig-height: 5
+#| layout: [[66,34]]
+
+zoom_S_overview[[1]][[1]]$t
+zoom_S_overview[[1]][[1]]$m
+```
+
+
+:::: {.column-page}
+
+::: {.panel-tabset}
+
+
+```{r}
+#| label: fig-S_focus110
+#| include: true
+#| fig-width: 16
+#| fig-height: 10
+#| results: asis
+
+iwalk(zoom_S_densi[[1]][[1]], ~ {
+  cat('#### ', .y, '\n\n')
+  print(.x)
+  cat('\n\n')
+})
+
+```
+
+
+::: 
+
+::::
+
+### Cabourg
+
+
+```{r}
+#| label: fig-S_focus12
+#| fig-cap: "Small area details data"
+#| fig-subcap: 
+#|   - "Time Line"
+#|   - "Map"
+#| include: true
+#| column: page
+#| fig-height: 8
+#| layout: [[66,34]]
+
+zoom_S_overview[[1]][[2]]$t
+zoom_S_overview[[1]][[2]]$m
+```
+
+
+:::: {.column-page}
+
+::: {.panel-tabset}
+
+
+```{r}
+#| label: fig-S_focus120
+#| include: true
+#| fig-width: 16
+#| fig-height: 10
+#| results: asis
+
+iwalk(zoom_S_densi[[1]][[2]], ~ {
+  cat('#### ', .y, '\n\n')
+  print(.x)
+  cat('\n\n')
+})
+
+```
+
+
+::: 
+
+::::
+
+### Luc sur Mer
+
+
+```{r}
+#| label: fig-S_focus13
+#| fig-cap: "Small area details data"
+#| fig-subcap: 
+#|   - "Time Line"
+#|   - "Map"
+#| include: true
+#| column: page
+#| fig-height: 8
+#| layout: [[66,34]]
+
+zoom_S_overview[[1]][[3]]$t
+zoom_S_overview[[1]][[3]]$m
+```
+
+
+:::: {.column-page}
+
+::: {.panel-tabset}
+
+
+```{r}
+#| label: fig-S_focus130
+#| include: true
+#| fig-width: 16
+#| fig-height: 10
+#| results: asis
+
+iwalk(zoom_S_densi[[1]][[3]], ~ {
+  cat('#### ', .y, '\n\n')
+  print(.x)
+  cat('\n\n')
+})
+
+```
+
+:::
+
+::::
+
+# Final actions and save
+
+Rdata are saved in `rdataout`. An excel file collects data in `r binderout` , with sheets for :
+
+-   data : contains whatever
+
+
+```{r}
+#| label: finalsave_xsl
+#| eval: false
+
+# wb <- copyWorkbook(loadWorkbook(binderin))
+# # copyworkbook to avoid any pb that can occur on the excel file
+# if (!("AllMeas" %in% names(wb))) {
+#   addWorksheet(wb=wb, sheetName = "AllMeas")}
+# writeData(wb, sheet = "AllMeas", x = data, 
+#           startCol = 1, startRow = 1,withFilter = FALSE)
+# 
+# saveWorkbook(wb,file=binderout, overwrite = TRUE)
+
+```
+
+```{r}
+#| label: finalsave_rdata
+rm(list=ls(pattern="raw"))
+rm(list=ls(pattern="tmp"))
+rm(list=ls(pattern="corr"))
+rm(sno_set,df_set,df_desc,gp)
+# save.image(file = paste0(rdataout.RData))
+beepr::beep(2)
+
+```
+
+
+# References {.unnumbered}
+
+
+## Details on data sets
+
+### Benthobs
+
+
+```{r}
+#| label: tbl-bo_corr
+#| eval: false
+#| include: false
+
+# bo_corr_tbl <- bo_set %>% 
+#   lapply(. %>% 
+#     select(where(is.numeric)) %>% 
+#     corstars(., result="none",removeTriangle="upper") %>% 
+#     mutate(variable=rownames(.)) %>% 
+#     relocate(variable))
+# 
+# bo_corr_tbl %>% kable()
+
+```
+
+```{r}
+#| label: fig-bo_corr
+#| eval: false
+#| include: false
+
+# bo_corr_fig <- bo_set %>% 
+#   lapply(. %>%
+#     select(where(is.numeric)) %>% 
+#     ggpairs(., #title=titreG,
+#       progress=FALSE,
+#       upper = list(continuous = corr_col),
+#       lower = list(continuous=
+#                      wrap("smooth", size = .5,
+#                           alpha = 0.4, color = "navyblue"))))
+# print(bo_corr_fig)
+```
+
+
+### Phytobs
+
+
+
+```{r}
+#| label: tbl-po_corr
+#| eval: false
+#| include: true
+
+# po_corr_tbl <- po_set %>% 
+#   lapply(. %>% 
+#     select(where(is.numeric)) %>% 
+#     corstars(., result="none",removeTriangle="upper") %>% 
+#     mutate(variable=rownames(.)) %>% 
+#     relocate(variable))
+# 
+# po_corr_tbl %>% kable()
+
+```
+
+```{r}
+#| label: fig-po_corr
+#| include: false
+#| eval: false
+
+# po_corr_fig <- po_set %>% 
+#   lapply(. %>%
+#     select(where(is.numeric)) %>% 
+#     ggpairs(., #title=titreG,
+#       progress=FALSE,
+#       upper = list(continuous = corr_col),
+#       lower = list(continuous=
+#                      wrap("smooth", size = .5,
+#                           alpha = 0.4, color = "navyblue"))))
+    
+# print(po_corr_fig)
+```
+
+
+### Somlit
+
+
+
+```{r}
+#| label: tbl-sl_corr
+#| eval: false
+#| include: false
+
+# sl_corr_tbl <- sl_set %>% 
+#   lapply(. %>% 
+#     select(where(is.numeric)) %>% 
+#     corstars(., result="none",removeTriangle="upper") %>% 
+#     mutate(variable=rownames(.)) %>% 
+#     relocate(variable))
+# 
+# sl_corr_tbl %>% kable()
+
+```
+
+```{r}
+#| label: fig-sl_corr
+#| include: false
+#| eval: false
+
+# sl_corr_fig <- sl_set %>% 
+#   lapply(. %>%
+#     select(where(is.numeric)) %>% 
+#     ggpairs(., #title=titreG,
+#       progress=FALSE,
+#       upper = list(continuous = corr_col),
+#       lower = list(continuous=
+#                      wrap("smooth", size = .5,
+#                           alpha = 0.4, color = "navyblue"))))
+# print(sl_corr_fig)
+```
+
+
+### Coasthf
+
+
+```{r}
+#| label: tbl-cf_corr
+#| eval: false
+#| include: false
+
+# cf_corr_tbl <- cf_set %>% 
+#   lapply(. %>% 
+#     select(where(is.numeric)) %>% 
+#     corstars(., result="none",removeTriangle="upper") %>% 
+#     mutate(variable=rownames(.)) %>% 
+#     relocate(variable))
+# 
+# cf_corr_tbl %>% kable()
+
+```
+
+```{r}
+#| label: fig-cf_corr
+#| include: false
+#| eval: false
+
+# cf_corr_fig <- cf_set %>% 
+#   lapply(. %>%
+#     select(where(is.numeric)) %>% 
+#     ggpairs(., #title=titreG,
+#       progress=FALSE,
+#       upper = list(continuous = corr_col),
+#       lower = list(continuous=
+#                      wrap("smooth", size = .5,
+#                           alpha = 0.4, color = "navyblue"))))
+# print(cf_corr_fig)
+```
+
