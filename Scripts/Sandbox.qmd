@@ -42,7 +42,7 @@ library(plotly)
 library(ggdist)
 library(introdataviz) # geom_split_violin # devtools::install_github("psyteachr/introdataviz")
 sf_use_s2(FALSE)
-
+tmap_mode("view") # "plot" "view"
 ```
 
 ```{r}
@@ -105,15 +105,42 @@ load(rdataout)
 
 :::: {.column-page}
 
-::: {.panel-tabset}
+::: panel-tabset
 
 ```{r}
 #| include: true
-#| fig-width: 16
+#| results: asis
+#| label: fig-small_data
+#| fig-cap: "Time series of SNOs tables by small area"
+#| fig-subcap: 
+#|   - "Time Line"
+#|   - "Map"
+#| fig-height: 8
+#| layout: [[66,34],]
+
+iwalk(focus_S_overview[[1]][1:2], ~ {
+  cat('#### ', .y, '\n\n')
+  print(.x)
+  cat('\n\n')
+})
+
+```
+
+:::
+
+::::
+
+### dfvvf
+:::: {.column-page}
+
+::: panel-tabset
+
+```{r}
+#| include: true
 #| fig-height: 8
 #| results: asis
 
-iwalk(zoom_S_densi[[1]][[2]], ~ {
+iwalk(zoom_S_densi[[1]][[2]][1:2], ~ {
   cat('#### ', .y, '\n\n')
   print(.x)
   cat('\n\n')

@@ -48,6 +48,7 @@ library(ggdist)
 library(introdataviz) # geom_split_violin # devtools::install_github("psyteachr/introdataviz")
 
 sf_use_s2(FALSE)
+tmap_mode("view") # "plot" "view"
 ```
 
 ```{r}
@@ -80,6 +81,34 @@ Scalc_lon<- function(x) {scale_colour_manual(values=pal_clb(x))}
 Scalf_lon<- function(x) {scale_fill_manual(values=pal_clb(x))}
 Scale_brew <- function() {scale_colour_brewer(palette="Spectral",aesthetics=c("colour","fill"))}
 ```
+
+# Load of Data
+
+All data treatment has been conducted with `r R.version.string` <!--# except for MARS3D pre-treatment on Matlab 2019a -->. Significance levels are tagged for p \< .0001 with "\*\*\*\*", p \< .001 with "\*\*\*", p \< .01 with "\*\*", p \< .05 with "\*".
+
+<!-- Basic variables -->
+```{r}
+#| label: basicvar
+
+name_bases <- c("BENTHOBS","PHYTOBS","SOMLIT","COASTHF")
+SNO_pal<-pal_clb(4); names(SNO_pal)<-name_bases
+  
+SNO_Areas<-paste(wdGIS,"SNO_Areas.shp",sep="")
+  SNO_Areas<-st_read(SNO_Areas,quiet=TRUE,crs=4326 ) # %>% st_transform(2154)
+# st_crs(SNO_Areas)
+```
+
+<!-- Output binder and data -->
+```{r}
+#| label: outfiles
+
+binderout <- sprintf("%sNEO_wshp.xlsx",wdres)
+rdataout  <- sprintf("%sNEO_wshp",wdmat)
+# if exists
+# load(paste0(rdataout,".Rdata"))
+```
+
+<!-- Home made functions -->
 
 ```{r}
 #| label: functmade
@@ -159,38 +188,6 @@ corstars <-function(x, method=c("pearson", "spearman"),
       else print(xtable(Rnew), type="latex") 
     }
 } 
-
-```
-
-# Load of Data
-
-All data treatment has been conducted with `r R.version.string` <!--# except for MARS3D pre-treatment on Matlab 2019a -->. Significance levels are tagged for p \< .0001 with "\*\*\*\*", p \< .001 with "\*\*\*", p \< .01 with "\*\*", p \< .05 with "\*".
-
-<!-- Basic variables -->
-```{r}
-#| label: basicvar
-
-name_bases <- c("BENTHOBS","PHYTOBS","SOMLIT","COASTHF")
-SNO_pal<-pal_clb(4); names(SNO_pal)<-name_bases
-  
-SNO_Areas<-paste(wdGIS,"SNO_Areas.shp",sep="")
-  SNO_Areas<-st_read(SNO_Areas,quiet=TRUE,crs=4326 ) # %>% st_transform(2154)
-# st_crs(SNO_Areas)
-```
-
-<!-- Output binder and data -->
-```{r}
-#| label: outfiles
-
-binderout <- sprintf("%sNEO_wshp.xlsx",wdres)
-rdataout  <- sprintf("%sNEO_wshp",wdmat)
-# if exists
-# load(rdataout)
-```
-
-<!-- Home made functions -->
-```{r}
-#| label: desc_data
 
 dat_desc<-function(df){
   bdd_base<-unique(df$bdd_base)
@@ -611,9 +608,10 @@ if (refresh_SNO){
       as.data.frame() %>% 
       mutate(PLATFORM = as.character(PLATFORM)) %>% 
       rename(sampling_date=`DATE (yyyy-mm-ddThh:mi:ssZ)`,
-             bdd_table=PLATFORM,
+             # bdd_table=PLATFORM,
              longitude=`LONGITUDE (degree_east)`,
              latitude=`LATITUDE (degree_north)`) %>% 
+      mutate(bdd_table = cf_buoy[,2]) %>%
       mutate(bdd_base = name_base) %>%
       mutate(dfMonth = month(sampling_date), #month.abb[month(sampling_date)],
              dfYear  = year(sampling_date)) %>%
@@ -758,7 +756,6 @@ rm(bo_sf,po_sf,sl_sf,cf_sf)
 #| include: true
 #| fig-cap: "Maps of data sets locations"
 
-tmap_mode("view") # "plot" "view"
 sno_map<-
   tm_basemap(leaflet::providers$OpenStreetMap.HOT) +
   tm_shape(SNO_Areas %>% filter(Category=="LARGE")) +
@@ -869,10 +866,7 @@ Data can then be distinguished by geographical areas, with the different scale c
 #| label: fig-large_data
 #| fig-cap: "Time series of SNOs tables by large area"
 #| include: true
-#| column: page
 #| fig-height: 10
-#| fig-width: 12
-#| fig-format: svg
 
 gp <- timeline %>% 
   ggplot(aes(x=station, y=sampling_date, color=bdd_base)) +
@@ -924,6 +918,7 @@ names(focus_S_overview)<-unlist(areas_L)
 
 :::: {.column-page}
 ::: panel-tabset
+
 ### Manche
 
 ```{r}
@@ -934,9 +929,12 @@ names(focus_S_overview)<-unlist(areas_L)
 #|   - "Map"
 #| include: true
 #| fig-height: 5
-#| layout: [[66,34]]
+#| layout: [[66,34],]
+
+walk(focus_S_overview[[1]], print)
 
 focus_S_overview[[1]]$t
+
 focus_S_overview[[1]]$m
 ```
 
@@ -950,9 +948,10 @@ focus_S_overview[[1]]$m
 #|   - "Map"
 #| include: true
 #| fig-height: 5
-#| layout: [[66,34]]
+#| layout: [[66,34],]
 
 focus_S_overview[[2]]$t
+
 focus_S_overview[[2]]$m
 ```
 
@@ -966,9 +965,10 @@ focus_S_overview[[2]]$m
 #|   - "Map"
 #| include: true
 #| fig-height: 5
-#| layout: [[66,34]]
+#| layout: [[66,34],]
 
 focus_S_overview[[3]]$t
+
 focus_S_overview[[3]]$m
 ```
 
@@ -982,9 +982,10 @@ focus_S_overview[[3]]$m
 #|   - "Map"
 #| include: true
 #| fig-height: 5
-#| layout: [[66,34]]
+#| layout: [[66,34],]
 
 focus_S_overview[[4]]$t
+
 focus_S_overview[[4]]$m
 ```
 :::
@@ -1142,6 +1143,7 @@ zoom_S_densi <- map2(sno_set_S,areas_S,
 ```
 
 ## Manche
+
 ### Estuaire de la Liane
 
 ```{r}
@@ -1152,19 +1154,21 @@ zoom_S_densi <- map2(sno_set_S,areas_S,
 #|   - "Map"
 #| include: true
 #| fig-height: 5
-#| layout: [[66,34]]
+#| layout: [[66,34],]
 
 zoom_S_overview[[1]][[1]]$t
 zoom_S_overview[[1]][[1]]$m
+
 ```
 
 :::: {.column-page}
 
-::: {.panel-tabset}
+::: panel-tabset
 
 ```{r}
 #| label: fig-S_focus110
 #| include: true
+#| column: page
 #| fig-width: 16
 #| fig-height: 10
 #| results: asis
@@ -1191,20 +1195,22 @@ iwalk(zoom_S_densi[[1]][[1]], ~ {
 #|   - "Map"
 #| include: true
 #| column: page
-#| fig-height: 8
-#| layout: [[66,34]]
+#| fig-height: 5
+#| layout: [[66,34],]
+
+zoom_S_overview[[1]][[2]]$m
 
 zoom_S_overview[[1]][[2]]$t
-zoom_S_overview[[1]][[2]]$m
 ```
 
 :::: {.column-page}
 
-::: {.panel-tabset}
+::: panel-tabset
 
 ```{r}
 #| label: fig-S_focus120
 #| include: true
+#| column: page
 #| fig-width: 16
 #| fig-height: 10
 #| results: asis
@@ -1231,21 +1237,21 @@ iwalk(zoom_S_densi[[1]][[2]], ~ {
 #|   - "Map"
 #| include: true
 #| column: page
-#| fig-height: 8
-#| layout: [[66,34]]
+#| fig-height: 5
+#| layout: [[66,34],]
+
+zoom_S_overview[[1]][[3]]$m
 
 zoom_S_overview[[1]][[3]]$t
-zoom_S_overview[[1]][[3]]$m
 ```
 
 :::: {.column-page}
 
-::: {.panel-tabset}
+::: panel-tabset
 
 ```{r}
 #| label: fig-S_focus130
 #| include: true
-#| fig-width: 16
 #| fig-height: 10
 #| results: asis
 
@@ -1257,7 +1263,6 @@ iwalk(zoom_S_densi[[1]][[3]], ~ {
 
 ```
 :::
-
 ::::
 
 # Final actions and save
@@ -1287,7 +1292,9 @@ rm(list=ls(pattern="raw"))
 rm(list=ls(pattern="tmp"))
 rm(list=ls(pattern="corr"))
 rm(sno_set,df_set,df_desc,gp)
-# save.image(file = paste0(rdataout.RData))
+
+save(list=(ls()[-grep("^sno_set_|^bo|^po|^sl|^cf", ls())]),
+     file = paste0(rdataout,".RData"))
 beepr::beep(2)
 
 ```
