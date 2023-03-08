@@ -76,18 +76,6 @@ Scalf_lon<- function(x) {scale_fill_manual(values=pal_clb(x))}
 Scale_brew <- function() {scale_colour_brewer(palette="Spectral",aesthetics=c("colour","fill"))}
 ```
 
-<!-- Basic variables -->
-```{r}
-#| label: basicvar
-
-name_bases <- c("BENTHOBS","PHYTOBS","SOMLIT","COASTHF")
-SNO_pal<-pal_clb(4); names(SNO_pal)<-name_bases
-  
-SNO_Areas<-paste(wdGIS,"SNO_Areas.shp",sep="")
-  SNO_Areas<-st_read(SNO_Areas,quiet=TRUE,crs=4326 ) # %>% st_transform(2154)
-# st_crs(SNO_Areas)
-```
-
 <!-- Output binder and data -->
 ```{r}
 #| label: outfiles
@@ -107,6 +95,8 @@ load(rdataout)
 
 ::: panel-tabset
 
+#### truc
+
 ```{r}
 #| include: true
 #| results: asis
@@ -118,11 +108,39 @@ load(rdataout)
 #| fig-height: 8
 #| layout: [[66,34],]
 
-iwalk(focus_S_overview[[1]][1:2], ~ {
-  cat('#### ', .y, '\n\n')
-  print(.x)
-  cat('\n\n')
-})
+walk(focus_S_overview[[1]], ~print(.x))
+
+# iwalk(focus_S_overview[[1]][1:2], ~ {
+#   cat('#### ', .y, '\n\n')
+#   print(.x)
+#   cat('\n\n')
+# })
+
+```
+:::
+
+::::
+
+### autre tentative
+
+:::: {.column-page}
+
+::: panel-tabset
+```{r}
+#| include: true
+#| results: asis
+#| layout-ncol: 2
+#| fig-height: 8
+#| fig-width: 16
+
+iwalk(focus_S_overview[[1]],
+      ~ {
+        cat('#### ', .y, '\n\n')
+        print(.x$t)
+        cat('\n')
+        .x[["m"]]
+        cat('\n\n')
+        })
 
 ```
 
@@ -131,20 +149,23 @@ iwalk(focus_S_overview[[1]][1:2], ~ {
 ::::
 
 ### dfvvf
-:::: {.column-page}
 
-::: panel-tabset
+:::: {.column-page fig-align="center"}
+
+::: {.panel-tabset}
 
 ```{r}
 #| include: true
-#| fig-height: 8
 #| results: asis
+#| fig-width: 16
+#| fig-height: 10
 
-iwalk(zoom_S_densi[[1]][[2]][1:2], ~ {
-  cat('#### ', .y, '\n\n')
-  print(.x)
-  cat('\n\n')
-})
+iwalk(zoom_S_densi[[1]][[2]], 
+      ~ {
+        cat('#### ', .y, '\n\n')
+        print(.x)
+        cat('\n\n')
+        })
 
 ```
 
